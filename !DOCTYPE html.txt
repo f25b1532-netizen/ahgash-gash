@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Integration Calculator</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f5f7fb;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            max-width: 900px;
+            width: 100%;
+            background: #ffffff;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            margin-top: 0;
+            color: #1e293b;
+            font-size: 24px;
+            text-align: center;
+        }
+        .app-layout {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+        @media (min-width: 768px) {
+            .app-layout {
+                grid-template-columns: 320px 1fr;
+            }
+        }
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            background: #f8fafc;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        label {
+            font-weight: 600;
+            font-size: 14px;
+            color: #475569;
+        }
+        input, select {
+            padding: 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input:focus, select:focus {
+            border-color: #3b82f6;
+        }
+        .result-box {
+            margin-top: 10px;
+            padding: 15px;
+            background: #eff6ff;
+            border-left: 4px solid #3b82f6;
+            border-radius: 4px;
+        }
+        .result-title {
+            font-size: 14px;
+            color: #1e40af;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .result-value {
+            font-size: 22px;
+            font-weight: bold;
+            color: #1d4ed8;
+            font-family: monospace;
+        }
+        .error {
+            color: #dc2626;
+            font-size: 13px;
+            margin-top: 5px;
+            display: none;
+        }
+        .canvas-container {
+            position: relative;
+            min-height: 350px;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Definite Integral Calculator & Visualizer</h1>
+    
+    <div class="app-layout">
+        <div class="controls">
+            <div class="input-group">
+                <label for="functionInput">Function f(x)</label>
+                <input type="text" id="functionInput" value="x^2 - 2x + 1" placeholder="e.g., sin(x), x^2, 2*x">
+                <div id="errorMsg" class="error">Invalid mathematical expression.</div>
+            </div>
+            
+            <div class="input-group">
+                <label for="lowerBound">Lower Limit (a)</label>
+                <input type="number" id="lowerBound" value="0" step="any">
+            </div>
+            
+            <div class="input-group">
+                <label for="upperBound">Upper Limit (b)</label>
+                <input type="number" id="upperBound" value="3" step="any">
+            </div>
+
+            <div class="input-group">
+                <label for="rectangles">Number of Subdivisions (n)</label>
+                <input type="number" id="rectangles" value="10" min="1" max="200" step="1">
+            </div>
+
+            <div class="input-group">
+                <label for="sumType">Riemann Sum Type</label>
+                <select id="sumType">
+                    <option value="left">Left Riemann Sum</option>
+                    <option value="right">Right Riemann Sum</option>
+                    <option value="midpoint" selected>Midpoint Riemann Sum</option>
+                </select>
+            </div>
+
+            <div class="result-box">
+                <div class="result-title">Approximate Area (∫ f(x) dx)</div>
+                <div id="resultValue" class="result-value">0.0000</div>
+            </div>
+        </div>
+
+        <div class="canvas-container">
+            <canvas id="graphCanvas"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+    let chart;
+    const ctx = document.getElementById('graphCanvas').getContext('2d');
+
+    // Setup input listeners to automatically update graph and calculations
+    const inputs = ['functionInput', 'lowerBound', 'upperBound', 'rectangles', 'sumType'];
+    inputs.forEach(id => {
+        document.getElementById(id).addEventListener('input', calculateAndPlot);
+    });
+
+    // Helper to evaluate f(x) safely using math.js
+    function evaluateFunction(expr, xVal) {
+        try {
+            return math.evaluate(expr, { x: xVal });
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function calculateAndPlot() {
+        const expr = document.getElementById('functionInput').value;
+        const a = parseFloat(document.getElementById('lowerBound').value);
+        const b = parseFloat(document.getElementById('upperBound').value);
+        const n = parseInt(document.getElementById('rectangles').value) || 10;
+        const sumType = document.getElementById('sumType').value;
+        const errorMsg = document.getElementById('errorMsg');
+
+        // Reset error message
+        errorMsg.style.display = 'none';
+
+        // Basic validation
+        if (isNaN(a) || !isFinite(a) || isNaN(b) || !isFinite(b) || a >= b || n <= 0) {
+            document.getElementById('resultValue').innerText = "---";
+            return;
+        }
+
+        // Test math string validity
+        if (evaluateFunction(expr, a) === null) {
+            errorMsg.style.display = 'block';
+            document.getElementById('resultValue').innerText = "---";
+            return;
+        }
+
+        // 1. Calculate Riemann Sum
+        const dx = (b - a) / n;
+        let totalArea = 0;
+        let rectBars = [];
+
+        for (let i = 0; i < n; i++) {
+            let xEval;
+            let xLeft = a + i * dx;
+            let xRight = a + (i + 1) * dx;
+
+            if (sumType === 'left') {
+                xEval = xLeft;
+            } else if (sumType === 'right') {
+                xEval = xRight;
+            } else {
+                xEval = xLeft + dx / 2; // Midpoint
+            }
+
+            let yVal = evaluateFunction(expr, xEval);
+            if (typeof yVal !== 'number' || isNaN(yVal)) yVal = 0;
+            
+            totalArea += yVal * dx;
+
+            // Generate coordinates to render standard bar rectangles manually
+            rectBars.push({ xLeft, xRight, yVal });
+        }
+
+        document.getElementById('resultValue').innerText = totalArea.toFixed(5);
+
+        // 2. Generate Smooth Curve Data points
+        const curvePoints = [];
+        // Add padding to graph view outside bounds [a, b]
+        const padding = (b - a) * 0.25 || 1;
+        const graphMinX = a - padding;
+        const graphMaxX = b + padding;
+        const steps = 150;
+        const stepSize = (graphMaxX - graphMinX) / steps;
+
+        for (let i = 0; i <= steps; i++) {
+            let currX = graphMinX + i * stepSize;
+            let currY = evaluateFunction(expr, currX);
+            if (typeof currY === 'number' && !isNaN(currY)) {
+                curvePoints.push({ x: currX, y: currY });
+            }
+        }
+
+        // 3. Build Chart Data structures
+        // Line data for the function
+        const datasets = [{
+            label: `f(x) = ${expr}`,
+            data: curvePoints,
+            borderColor: '#2563eb',
+            borderWidth: 3,
+            fill: false,
+            pointRadius: 0,
+            tension: 0.1,
+            order: 1
+        }];
+
+        // Dynamic individual dataset for each Riemann rectangle bar
+        rectBars.forEach((bar, idx) => {
+            datasets.push({
+                label: idx === 0 ? 'Riemann Sum Area' : '', // Label only first for clean legend
+                data: [
+                    { x: bar.xLeft, y: 0 },
+                    { x: bar.xLeft, y: bar.yVal },
+                    { x: bar.xRight, y: bar.yVal },
+                    { x: bar.xRight, y: 0 }
+                ],
+                borderColor: 'rgba(59, 130, 246, 0.6)',
+                backgroundColor: 'rgba(59, 130, 246, 0.25)',
+                borderWidth: 1,
+                fill: true,
+                pointRadius: 0,
+                showLine: true,
+                order: 2
+            });
+        });
+
+        // 4. Render/Update Chart
+        if (chart) {
+            chart.data.datasets = datasets;
+            chart.options.scales.x.min = graphMinX;
+            chart.options.scales.x.max = graphMaxX;
+            chart.update('none'); // Update without full recalculation lag
+        } else {
+            chart = new Chart(ctx, {
+                type: 'scatter',
+                data: { datasets: datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: {
+                                filter: function(item, chartData) {
+                                    // Hide repetitive legend items for rectangles
+                                    return item.text !== '';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            position: 'bottom',
+                            min: graphMinX,
+                            max: graphMaxX,
+                            grid: { color: '#e2e8f0' }
+                        },
+                        y: {
+                            type: 'linear',
+                            grid: { color: '#e2e8f0' }
+                        }
+                    },
+                    animation: false
+                }
+            });
+        }
+    }
+
+    // Run layout on start
+    calculateAndPlot();
+</script>
+
+</body>
+</html>
